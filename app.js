@@ -1,17 +1,29 @@
-// app.js
-
 const searchInput = document.getElementById('search');
+const clearBtn = document.getElementById('clearSearch');
 const resultsDiv = document.getElementById('results');
-const modal = document.getElementById('modal');
 
-// --- 1. FONCTION D'AFFICHAGE ---
-function displayResults(dataToDisplay) {
-    resultsDiv.innerHTML = ''; // On vide les résultats actuels
-
-    if (dataToDisplay.length === 0) {
-        resultsDiv.innerHTML = '<p style="text-align:center; color:#999;">Aucun résultat trouvé...</p>';
-        return;
+// --- FONCTION DE TOLÉRANCE AUX FAUTES (Distance de Levenshtein simple) ---
+function isSimilar(str1, str2) {
+    const s1 = str1.toLowerCase();
+    const s2 = str2.toLowerCase();
+    if (s1.includes(s2) || s2.includes(s1)) return true;
+    
+    // Si l'utilisateur tape au moins 4 lettres, on autorise une erreur
+    if (s1.length > 3) {
+        let mistakes = 0;
+        let i = 0, j = 0;
+        while (i < s1.length && j < s2.length) {
+            if (s1[i] !== s2[j]) mistakes++;
+            i++; j++;
+        }
+        return mistakes <= 1; // Autorise 1 lettre de différence
     }
+    return false;
+}
+
+function displayResults(dataToDisplay) {
+    resultsDiv.innerHTML = '';
+    clearBtn.style.display = searchInput.value.length > 0 ? 'block' : 'none';
 
     dataToDisplay.forEach(item => {
         const div = document.createElement('div');
@@ -20,67 +32,34 @@ function displayResults(dataToDisplay) {
             <span class="source-tag">${item.title_he || ''}</span>
             <h3>${item.title}</h3>
             <p>${item.summary || ''}</p>
-            <div style="margin-top:10px;">
-                ${item.keywords.map(k => `<span style="font-size:0.7rem; background:#eee; padding:2px 6px; margin-right:5px; border-radius:10px;">#${k}</span>`).join('')}
-            </div>
         `;
         div.onclick = () => openSefaria(item);
         resultsDiv.appendChild(div);
     });
 }
 
-// --- 2. INITIALISATION (Au chargement du site) ---
-// On affiche tout l'index dès le départ
-displayResults(shulchanIndex);
+// Gestion de la croix de nettoyage
+clearBtn.onclick = () => {
+    searchInput.value = '';
+    displayResults(shulchanIndex);
+    searchInput.focus();
+};
 
-// --- 3. LOGIQUE DE FILTRE ---
 searchInput.addEventListener('input', (e) => {
     const query = e.target.value.toLowerCase().trim();
-
-    // Si le champ est vide, on réaffiche tout
-    if (query === "") {
+    if (!query) {
         displayResults(shulchanIndex);
         return;
     }
 
-    // Sinon, on filtre sur plusieurs champs
     const filtered = shulchanIndex.filter(item => {
-        return item.title.toLowerCase().includes(query) || 
-               (item.summary && item.summary.toLowerCase().includes(query)) ||
-               item.keywords.some(k => k.toLowerCase().includes(query)) ||
-               (item.title_he && item.title_he.includes(query));
+        const matchTitle = isSimilar(item.title, query);
+        const matchKeywords = item.keywords.some(k => isSimilar(k, query));
+        return matchTitle || matchKeywords;
     });
 
     displayResults(filtered);
 });
 
-// --- 4. APPEL API SEFARIA ---
-async function openSefaria(item) {
-    modal.style.display = 'flex';
-    document.getElementById('modalTitle').innerText = item.title;
-    document.getElementById('modalText').innerHTML = "Chargement du texte depuis Sefaria...";
-
-    try {
-        // Nettoyage de la ref pour l'API (remplacer les espaces par des underscores)
-        const cleanRef = item.ref.replace(/ /g, "_");
-        const response = await fetch(`https://www.sefaria.org/api/texts/${cleanRef}?context=0`);
-        const data = await response.json();
-        
-        let fullText = "";
-        if (data.he) {
-            // Sefaria peut renvoyer un tableau simple ou un tableau de tableaux
-            const lines = Array.isArray(data.he) ? data.he.flat() : [data.he];
-            fullText = lines.map(line => `<div class="hebrew-text">${line}</div>`).join('');
-        } else {
-            fullText = "Désolé, le texte hébreu n'est pas disponible pour cette section.";
-        }
-        
-        document.getElementById('modalText').innerHTML = fullText;
-    } catch (error) {
-        document.getElementById('modalText').innerHTML = "Erreur de connexion. Vérifiez votre réseau.";
-    }
-}
-
-function closeModal() {
-    modal.style.display = 'none';
-}
+// Initialisation
+displayResults(shulchanIndex);
